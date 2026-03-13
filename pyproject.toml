@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "wisprtypr"
+version = "0.1.0"
+description = "Local-first tray dictation app for Ubuntu/Xfce on X11."
+authors = ["Kevin Barrett"]
+readme = "README.md"
+packages = [{ include = "wisprtypr", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^2.2.4"
+sounddevice = "^0.5.1"
+faster-whisper = "^1.1.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+
+[tool.poetry.scripts]
+wisprtypr = "wisprtypr.main:main"
+wisprtypr-install-autostart = "wisprtypr.autostart:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
