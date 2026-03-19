@@ -18,6 +18,8 @@ pytest = "^8.3.5"
 [tool.poetry.scripts]
 wisprtypr = "wisprtypr.main:main"
 wisprtypr-install-autostart = "wisprtypr.autostart:main"
+wisprtypr-audio-eval = "wisprtypr.audio_eval:audio_eval_main"
+wisprtypr-audio-fix-loop = "wisprtypr.audio_eval:audio_fix_loop_main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
