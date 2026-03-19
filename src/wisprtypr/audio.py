@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -146,29 +147,44 @@ class TranscriptionWorker:
         self._transcribe = transcribe
         self._on_text = on_text
         self._on_error = on_error
-        self._queue: queue.Queue[DetectedChunk | None] = queue.Queue()
+        self._pending: deque[DetectedChunk] = deque()
+        self._condition = threading.Condition()
+        self._stopping = False
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self._stopping = False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def submit(self, chunk: DetectedChunk) -> None:
-        self._queue.put(chunk)
+        with self._condition:
+            self._pending.append(chunk)
+            self._condition.notify()
 
     def stop(self) -> None:
-        self._queue.put(None)
+        with self._condition:
+            self._stopping = True
+            self._condition.notify_all()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
         self._thread = None
 
     def _run(self) -> None:
         while True:
-            item = self._queue.get()
-            if item is None:
-                return
+            with self._condition:
+                while not self._pending and not self._stopping:
+                    self._condition.wait()
+                if self._stopping and not self._pending:
+                    return
+                item = self._pending.popleft()
+                while self._pending and not item.is_final:
+                    next_item = self._pending[0]
+                    item = merge_detected_chunks(item, self._pending.popleft())
+                    if next_item.is_final:
+                        break
             try:
                 result = self._transcribe(item)
                 if getattr(result, "text", ""):
@@ -177,3 +193,10 @@ class TranscriptionWorker:
                 if self._on_error is not None:
                     self._on_error(exc)
                 time.sleep(0.1)
+
+
+def merge_detected_chunks(left: DetectedChunk, right: DetectedChunk) -> DetectedChunk:
+    return DetectedChunk(
+        audio=np.concatenate((left.audio, right.audio)),
+        is_final=left.is_final or right.is_final,
+    )
