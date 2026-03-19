@@ -81,3 +81,17 @@ poetry run wisprtypr-toggle
 ```
 
 Bind that command to an Xfce keyboard shortcut for one-keystroke on/off.
+
+## Systemd Toggle Hook
+
+To keep the project path/Poetry invocation in systemd (instead of your shortcut), install the user unit:
+
+```bash
+make install-systemd-hook
+```
+
+Then your shortcut/launcher command can be:
+
+```bash
+systemctl --user start wisprtypr-toggle
+```

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from wisprtypr.system_gi import ensure_gi_available
@@ -20,6 +21,8 @@ except (ImportError, ValueError):  # pragma: no cover - depends on host
     AppIndicator3 = None
     HAS_APP_INDICATOR = False
 
+USE_APP_INDICATOR = os.environ.get("WISPRTYPR_USE_APPINDICATOR", "0") == "1"
+
 from wisprtypr.state import AppState
 
 
@@ -32,14 +35,19 @@ class TrayIcon:
         self._chunk_items = {}
         self._status_icon = None
         self._indicator = None
-        if HAS_APP_INDICATOR:
+        self._indicator_icon_name = "audio-input-microphone"
+        self._indicator_tooltip = "WisprTypr"
+        self._indicator_refresh_id = None
+        if HAS_APP_INDICATOR and USE_APP_INDICATOR:
+            indicator_id = f"wisprtypr-{os.getpid()}"
             self._indicator = AppIndicator3.Indicator.new(
-                "wisprtypr",
+                indicator_id,
                 "audio-input-microphone-symbolic",
                 AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
             )
             self._indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
             self._indicator.set_title("WisprTypr")
+            self._indicator_refresh_id = GLib.timeout_add_seconds(6, self._refresh_indicator_registration)
         else:
             self._status_icon = Gtk.StatusIcon()
             self._status_icon.set_visible(True)
@@ -65,6 +73,9 @@ class TrayIcon:
         Gtk.main()
 
     def stop(self) -> None:
+        if self._indicator_refresh_id is not None:
+            GLib.source_remove(self._indicator_refresh_id)
+            self._indicator_refresh_id = None
         Gtk.main_quit()
 
     def _set_state_sync(self, state: AppState, chunk_duration_seconds: int, error: str | None) -> bool:
@@ -86,6 +97,8 @@ class TrayIcon:
             AppState.ERROR: f"WisprTypr: Error ({chunk_duration_seconds}s chunks){f' - {error}' if error else ''}",
         }[state]
         if self._indicator is not None:
+            self._indicator_icon_name = indicator_icon_name
+            self._indicator_tooltip = tooltip
             self._indicator.set_icon_full(indicator_icon_name, tooltip)
         elif self._status_icon is not None:
             self._status_icon.set_from_file(str(icon_file))
@@ -143,3 +156,11 @@ class TrayIcon:
 
     def _handle_popup_menu(self, icon, button, activate_time) -> None:
         self._menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, activate_time)
+
+    def _refresh_indicator_registration(self) -> bool:
+        if self._indicator is None:
+            return False
+        self._indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        self._indicator.set_icon_full(self._indicator_icon_name, self._indicator_tooltip)
+        self._indicator.set_menu(self._menu)
+        return True
