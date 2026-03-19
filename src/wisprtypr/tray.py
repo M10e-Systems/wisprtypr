@@ -11,6 +11,15 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
+try:  # pragma: no cover - depends on system package availability
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3 as AppIndicator3  # type: ignore # noqa: E402
+
+    HAS_APP_INDICATOR = True
+except (ImportError, ValueError):  # pragma: no cover - depends on host
+    AppIndicator3 = None
+    HAS_APP_INDICATOR = False
+
 from wisprtypr.state import AppState
 
 
@@ -21,11 +30,24 @@ class TrayIcon:
         self._on_select_chunk_duration = None
         self._chunk_duration_seconds = 4
         self._chunk_items = {}
-        self._icon = Gtk.StatusIcon()
-        self._icon.set_visible(True)
-        self._icon.connect("activate", self._handle_activate)
-        self._icon.connect("popup-menu", self._handle_popup_menu)
+        self._status_icon = None
+        self._indicator = None
+        if HAS_APP_INDICATOR:
+            self._indicator = AppIndicator3.Indicator.new(
+                "wisprtypr",
+                "audio-input-microphone-symbolic",
+                AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
+            )
+            self._indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+            self._indicator.set_title("WisprTypr")
+        else:
+            self._status_icon = Gtk.StatusIcon()
+            self._status_icon.set_visible(True)
+            self._status_icon.connect("activate", self._handle_activate)
+            self._status_icon.connect("popup-menu", self._handle_popup_menu)
         self._menu = self._build_menu()
+        if self._indicator is not None:
+            self._indicator.set_menu(self._menu)
 
     def set_state(self, state: AppState, chunk_duration_seconds: int, error: str | None = None) -> None:
         GLib.idle_add(self._set_state_sync, state, chunk_duration_seconds, error)
@@ -48,23 +70,35 @@ class TrayIcon:
     def _set_state_sync(self, state: AppState, chunk_duration_seconds: int, error: str | None) -> bool:
         self._chunk_duration_seconds = chunk_duration_seconds
         asset_dir = Path(__file__).resolve().parent / "assets"
-        icon_name = {
+        icon_file = {
             AppState.OFF: asset_dir / "wisprtypr-off.svg",
             AppState.LISTENING: asset_dir / "wisprtypr-on.svg",
             AppState.ERROR: asset_dir / "wisprtypr-error.svg",
+        }[state]
+        indicator_icon_name = {
+            AppState.OFF: "audio-input-microphone",
+            AppState.LISTENING: "media-record",
+            AppState.ERROR: "dialog-error",
         }[state]
         tooltip = {
             AppState.OFF: f"WisprTypr: Off ({chunk_duration_seconds}s chunks)",
             AppState.LISTENING: f"WisprTypr: Listening ({chunk_duration_seconds}s chunks)",
             AppState.ERROR: f"WisprTypr: Error ({chunk_duration_seconds}s chunks){f' - {error}' if error else ''}",
         }[state]
-        self._icon.set_from_file(str(icon_name))
-        self._icon.set_tooltip_text(tooltip)
+        if self._indicator is not None:
+            self._indicator.set_icon_full(indicator_icon_name, tooltip)
+        elif self._status_icon is not None:
+            self._status_icon.set_from_file(str(icon_file))
+            self._status_icon.set_tooltip_text(tooltip)
         self._sync_chunk_menu_state(chunk_duration_seconds)
         return False
 
     def _build_menu(self):
         menu = Gtk.Menu()
+        toggle_item = Gtk.MenuItem(label="Toggle")
+        toggle_item.connect("activate", lambda *_args: self._on_toggle())
+        menu.append(toggle_item)
+        menu.append(Gtk.SeparatorMenuItem())
         chunk_header = Gtk.MenuItem(label="Chunk Length")
         chunk_header.set_sensitive(False)
         menu.append(chunk_header)

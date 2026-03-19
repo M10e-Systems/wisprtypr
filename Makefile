@@ -2,10 +2,14 @@ POETRY ?= poetry
 MAX_ITERATIONS ?= 5
 FREE_DATASET ?= tests/fixtures/audio/free-samples/dataset.jsonl
 
-.PHONY: test audio-dataset-bootstrap audio-eval audio-loop
+.PHONY: test toggle audio-dataset-bootstrap audio-eval audio-loop
 test:
 	$(POETRY) install --with dev
 	$(POETRY) run pytest
+
+toggle:
+	$(POETRY) install --with dev
+	$(POETRY) run wisprtypr-toggle
 
 audio-dataset-bootstrap:
 	./scripts/bootstrap_free_audio_dataset.sh

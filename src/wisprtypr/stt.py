@@ -13,7 +13,7 @@ class WhisperConfig:
     model_name: str = "small.en"
     compute_type: str = "auto"
     language: str = "en"
-    context_seconds: int = 6
+    context_seconds: int = 12
 
 
 @dataclass(frozen=True)

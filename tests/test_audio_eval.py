@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from wisprtypr.audio_eval import (
+    canonicalize_for_match,
     evaluate_cases,
     load_dataset,
     read_wav_mono_16k,
@@ -72,7 +73,7 @@ def test_transcribe_audio_case_chunks_and_uses_final_text():
 
     text = transcribe_audio_case(transcriber, audio=audio, chunk_duration_seconds=1)
 
-    assert text == "hello world"
+    assert text == "Hello world"
 
 
 def test_evaluate_cases_uses_normalized_exact_match(tmp_path: Path):
@@ -90,6 +91,42 @@ def test_evaluate_cases_uses_normalized_exact_match(tmp_path: Path):
     assert report.summary.passed == 1
     assert report.summary.failed == 0
     assert report.cases[0].passed is True
+
+
+def test_evaluate_cases_matches_digit_and_punctuation_variants(tmp_path: Path):
+    audio_file = tmp_path / "digits.wav"
+    _write_wav(audio_file, np.zeros(1600, dtype=np.float32))
+    transcriber = FakeTranscriber(["1, 2, 3."])
+
+    report = evaluate_cases(
+        [AudioEvalCase(audio=audio_file, expected="one two three")],
+        transcriber=transcriber,
+        chunk_duration_seconds=1,
+    )
+
+    assert report.summary.passed == 1
+    assert report.cases[0].expected_match_text == "one two three"
+    assert report.cases[0].predicted_match_text == "one two three"
+
+
+def test_transcribe_audio_case_accumulates_stable_prefixes():
+    transcriber = FakeTranscriber(
+        [
+            "And so my",
+            "And so my fellow Americans",
+            "And so my fellow Americans ask not what your country can do for you",
+            "And so my fellow Americans ask not what your country can do for you ask what you can do for your country",
+        ]
+    )
+    audio = np.zeros(65_000, dtype=np.float32)
+
+    text = transcribe_audio_case(transcriber, audio=audio, chunk_duration_seconds=1)
+
+    assert text == "And so my fellow Americans ask not what your country can do for you ask what you can do for your country"
+
+
+def test_canonicalize_for_match_normalizes_digits_and_symbols():
+    assert canonicalize_for_match("1, 2, 3.") == "one two three"
 
 
 def test_word_error_rate_smoke():

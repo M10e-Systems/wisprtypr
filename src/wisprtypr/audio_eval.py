@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import re
 import wave
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -27,6 +28,8 @@ class AudioEvalCaseResult:
     predicted: str
     expected_normalized: str
     predicted_normalized: str
+    expected_match_text: str
+    predicted_match_text: str
     passed: bool
     wer: float
 
@@ -44,6 +47,23 @@ class AudioEvalSummary:
 class AudioEvalReport:
     summary: AudioEvalSummary
     cases: list[AudioEvalCaseResult]
+
+
+_SPACE_RE = re.compile(r"\s+")
+_NON_ALNUM_SPACE_RE = re.compile(r"[^a-z0-9\s]")
+_DIGIT_WORDS = {
+    "0": "zero",
+    "1": "one",
+    "2": "two",
+    "3": "three",
+    "4": "four",
+    "5": "five",
+    "6": "six",
+    "7": "seven",
+    "8": "eight",
+    "9": "nine",
+}
+_SINGLE_DIGIT_RE = re.compile(r"\b([0-9])\b")
 
 
 def load_dataset(dataset_path: Path) -> list[AudioEvalCase]:
@@ -124,14 +144,45 @@ def transcribe_audio_case(transcriber, audio: np.ndarray, chunk_duration_seconds
     if audio.size == 0:
         return ""
 
-    transcript = ""
+    emitted_parts: list[str] = []
+    committed_words: list[str] = []
+    last_hypothesis_words: list[str] = []
     for start in range(0, len(audio), samples_per_chunk):
         end = min(start + samples_per_chunk, len(audio))
         is_final = end >= len(audio)
         update = transcriber.transcribe_chunk(DetectedChunk(audio=audio[start:end], is_final=is_final))
-        if update.text:
-            transcript = update.text
-    return transcript
+        normalized = normalize_transcript(update.text)
+        if not normalized:
+            if is_final:
+                committed_words = []
+                last_hypothesis_words = []
+            continue
+
+        current_words = normalized.split()
+        if is_final:
+            stable_words = current_words
+        else:
+            stable_words = _common_prefix_words(last_hypothesis_words, current_words)
+
+        if len(stable_words) > len(committed_words):
+            had_existing = bool(committed_words)
+            new_words = stable_words[len(committed_words) :]
+            emitted_parts.append(_format_commit_text(new_words, has_existing=had_existing))
+            committed_words = stable_words
+        last_hypothesis_words = current_words
+
+        if is_final:
+            committed_words = []
+            last_hypothesis_words = []
+
+    return "".join(emitted_parts).strip()
+
+
+def canonicalize_for_match(text: str) -> str:
+    normalized = normalize_transcript(text).lower()
+    normalized = _SINGLE_DIGIT_RE.sub(lambda m: _DIGIT_WORDS[m.group(1)], normalized)
+    normalized = _NON_ALNUM_SPACE_RE.sub(" ", normalized)
+    return _SPACE_RE.sub(" ", normalized).strip()
 
 
 def evaluate_cases(cases: list[AudioEvalCase], transcriber, chunk_duration_seconds: int) -> AudioEvalReport:
@@ -141,8 +192,10 @@ def evaluate_cases(cases: list[AudioEvalCase], transcriber, chunk_duration_secon
         predicted = transcribe_audio_case(transcriber, audio=audio, chunk_duration_seconds=chunk_duration_seconds)
         expected_normalized = normalize_transcript(case.expected)
         predicted_normalized = normalize_transcript(predicted)
-        passed = expected_normalized == predicted_normalized
-        wer = word_error_rate(expected_normalized.lower(), predicted_normalized.lower())
+        expected_match_text = canonicalize_for_match(expected_normalized)
+        predicted_match_text = canonicalize_for_match(predicted_normalized)
+        passed = expected_match_text == predicted_match_text
+        wer = word_error_rate(expected_match_text, predicted_match_text)
         case_results.append(
             AudioEvalCaseResult(
                 audio=str(case.audio),
@@ -150,6 +203,8 @@ def evaluate_cases(cases: list[AudioEvalCase], transcriber, chunk_duration_secon
                 predicted=predicted,
                 expected_normalized=expected_normalized,
                 predicted_normalized=predicted_normalized,
+                expected_match_text=expected_match_text,
+                predicted_match_text=predicted_match_text,
                 passed=passed,
                 wer=wer,
             )
@@ -203,6 +258,8 @@ def print_report(report: AudioEvalReport) -> None:
             f"[{status}] {result.audio} | "
             f"expected='{result.expected_normalized}' | "
             f"predicted='{result.predicted_normalized}' | "
+            f"expected_match='{result.expected_match_text}' | "
+            f"predicted_match='{result.predicted_match_text}' | "
             f"wer={result.wer:.4f}"
         )
 
@@ -222,7 +279,12 @@ def audio_eval_main() -> None:
     parser.add_argument("--model", default="small.en", help="Whisper model name")
     parser.add_argument("--compute-type", default="auto", help="faster-whisper compute type")
     parser.add_argument("--language", default="en", help="Whisper language code")
-    parser.add_argument("--context-seconds", type=int, default=6, help="rolling context seconds")
+    parser.add_argument(
+        "--context-seconds",
+        type=int,
+        default=WhisperConfig().context_seconds,
+        help="rolling context seconds",
+    )
     parser.add_argument("--chunk-seconds", type=int, default=4, help="chunk duration in seconds")
     parser.add_argument("--report-json", type=Path, help="optional path to write JSON report")
     args = parser.parse_args()
@@ -249,7 +311,7 @@ def audio_fix_loop_main() -> None:
     parser.add_argument("--model", default="small.en")
     parser.add_argument("--compute-type", default="auto")
     parser.add_argument("--language", default="en")
-    parser.add_argument("--context-seconds", type=int, default=6)
+    parser.add_argument("--context-seconds", type=int, default=WhisperConfig().context_seconds)
     parser.add_argument("--chunk-seconds", type=int, default=4)
     parser.add_argument("--report-dir", type=Path, default=Path("artifacts/audio-loop"))
     args = parser.parse_args()
@@ -286,3 +348,21 @@ def audio_fix_loop_main() -> None:
             print("Re-run after applying fixes.")
 
     raise SystemExit(1)
+
+
+def _common_prefix_words(left: list[str], right: list[str]) -> list[str]:
+    prefix: list[str] = []
+    for left_word, right_word in zip(left, right):
+        if left_word != right_word:
+            break
+        prefix.append(right_word)
+    return prefix
+
+
+def _format_commit_text(words: list[str], has_existing: bool) -> str:
+    if not words:
+        return ""
+    text = " ".join(words)
+    if has_existing:
+        return f" {text}"
+    return text

@@ -71,3 +71,13 @@ make audio-loop DATASET=path/to/dataset.jsonl MAX_ITERATIONS=5
 ```
 
 The loop writes per-iteration reports under `artifacts/audio-loop/` and fails if any case does not match expected normalized text.
+
+## Quick Toggle Command
+
+If the tray host does not support left-click toggle behavior, you can still toggle recording instantly:
+
+```bash
+poetry run wisprtypr-toggle
+```
+
+Bind that command to an Xfce keyboard shortcut for one-keystroke on/off.
