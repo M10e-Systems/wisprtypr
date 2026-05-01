@@ -72,6 +72,7 @@ class DictationController:
         self._capture.stop()
         self._detector.discard()
         self._worker.stop()
+        self._finalize_active_validation_observation()
         self._reset_live_transcript()
 
     def shutdown(self) -> None:
@@ -119,13 +120,22 @@ class DictationController:
                     detector_config=self._detector.describe_config(),
                     injection_method=injection.method if next_text else "none",
                 )
+            self._finalize_active_validation_observation()
             self._reset_live_transcript()
 
     def _handle_error(self, exc: Exception) -> None:
         self._capture.stop()
         self._worker.stop()
+        self._finalize_active_validation_observation()
         self._reset_live_transcript()
         self._set_state(AppState.ERROR, str(exc))
+
+    def _finalize_active_validation_observation(self) -> None:
+        if self._validation_manager is None:
+            return
+        if self._active_validation_utterance_id is None:
+            return
+        self._validation_manager.finalize_observation(self._active_validation_utterance_id)
 
     def _set_state(self, state: AppState, error: str | None = None) -> None:
         self._state = state

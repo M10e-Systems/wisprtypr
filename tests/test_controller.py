@@ -89,6 +89,31 @@ class FakeDetector:
     def set_max_chunk_seconds(self, seconds):
         self.max_chunk_seconds = seconds
 
+    def describe_config(self):
+        return {"max_chunk_seconds": self.max_chunk_seconds}
+
+
+class FakeValidationManager:
+    enabled = True
+
+    def __init__(self):
+        self.finalized = []
+        self.completed = []
+        self._next_id = 0
+
+    def begin_utterance(self):
+        self._next_id += 1
+        return f"utt-{self._next_id}"
+
+    def note_injection(self, utterance_id, full_text):
+        return None
+
+    def complete_utterance(self, utterance_id, **kwargs):
+        self.completed.append(utterance_id)
+
+    def finalize_observation(self, utterance_id):
+        self.finalized.append(utterance_id)
+
 
 def test_controller_toggle_lifecycle(monkeypatch):
     monkeypatch.setattr("wisprtypr.controller.AudioCapture", FakeCapture)
@@ -141,3 +166,64 @@ def test_controller_updates_chunk_duration(monkeypatch):
     assert controller._detector.max_chunk_seconds == 10
     assert tray.chunk_durations == [10]
     assert tray.options[1] == 4
+
+
+def test_controller_finalizes_observation_on_final_transcript(monkeypatch):
+    monkeypatch.setattr("wisprtypr.controller.AudioCapture", FakeCapture)
+    monkeypatch.setattr("wisprtypr.controller.TranscriptionWorker", FakeWorker)
+    monkeypatch.setattr("wisprtypr.controller.UtteranceDetector", FakeDetector)
+    tray = FakeTray()
+    validation_manager = FakeValidationManager()
+    controller = DictationController(
+        tray=tray,
+        transcriber=FakeTranscriber(),
+        injector=FakeInjector(),
+        validation_manager=validation_manager,
+    )
+    controller.start()
+
+    controller._handle_transcribed_text(FakeTranscriptUpdate(text="hello world", is_final=False))
+    controller._handle_transcribed_text(
+        FakeTranscriptUpdate(text="hello world again", is_final=True, audio=b"audio")
+    )
+
+    assert validation_manager.completed == ["utt-1"]
+    assert validation_manager.finalized == ["utt-1"]
+
+
+def test_controller_finalizes_observation_on_stop(monkeypatch):
+    monkeypatch.setattr("wisprtypr.controller.AudioCapture", FakeCapture)
+    monkeypatch.setattr("wisprtypr.controller.TranscriptionWorker", FakeWorker)
+    monkeypatch.setattr("wisprtypr.controller.UtteranceDetector", FakeDetector)
+    validation_manager = FakeValidationManager()
+    controller = DictationController(
+        tray=FakeTray(),
+        transcriber=FakeTranscriber(),
+        injector=FakeInjector(),
+        validation_manager=validation_manager,
+    )
+    controller.start()
+    controller._handle_transcribed_text(FakeTranscriptUpdate(text="hello world", is_final=False))
+
+    controller.stop()
+
+    assert validation_manager.finalized == ["utt-1"]
+
+
+def test_controller_finalizes_observation_on_error(monkeypatch):
+    monkeypatch.setattr("wisprtypr.controller.AudioCapture", FakeCapture)
+    monkeypatch.setattr("wisprtypr.controller.TranscriptionWorker", FakeWorker)
+    monkeypatch.setattr("wisprtypr.controller.UtteranceDetector", FakeDetector)
+    validation_manager = FakeValidationManager()
+    controller = DictationController(
+        tray=FakeTray(),
+        transcriber=FakeTranscriber(),
+        injector=FakeInjector(),
+        validation_manager=validation_manager,
+    )
+    controller.start()
+    controller._handle_transcribed_text(FakeTranscriptUpdate(text="hello world", is_final=False))
+
+    controller._handle_error(RuntimeError("boom"))
+
+    assert validation_manager.finalized == ["utt-1"]
