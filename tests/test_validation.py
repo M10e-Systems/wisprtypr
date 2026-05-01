@@ -146,3 +146,19 @@ def test_validation_spool_enforces_size_limit(tmp_path):
     spool.enforce_size_limit(0)
 
     assert spool.pending_records() == []
+
+
+def test_prepare_disable_reports_pending_state(tmp_path):
+    settings = ValidationSettings(validation_enabled=True)
+    spool = ValidationSpool(root=tmp_path / "validation")
+    manager = ValidationManager(
+        settings=settings,
+        settings_path=tmp_path / "settings.json",
+        spool=spool,
+        uploader=FakeUploader(settings, spool),
+        observer=FakeObserver(),
+    )
+    assert manager.prepare_disable() == "no_pending"
+
+    spool.pending_path("u1").write_text('{"utterance_id":"u1"}\n', encoding="utf-8")
+    assert manager.prepare_disable() == "pending_exists"
