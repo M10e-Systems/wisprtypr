@@ -1,0 +1,3 @@
+[mcp_servers.codanna]
+command = "codanna"
+args = ["--config", ".codanna/settings.toml", "serve", "--watch"]
