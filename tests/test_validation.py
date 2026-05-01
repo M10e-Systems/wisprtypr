@@ -1,11 +1,14 @@
 import json
+import urllib.request
 
 import numpy as np
+import pytest
 
 from wisprtypr.settings import ValidationSettings
 from wisprtypr.validation import CorrectionEvent
 from wisprtypr.validation import ValidationManager
 from wisprtypr.validation import ValidationSpool
+from wisprtypr.validation import ValidationUploader
 from wisprtypr.validation import summarize_correction_events
 
 
@@ -146,3 +149,50 @@ def test_validation_spool_enforces_size_limit(tmp_path):
     spool.enforce_size_limit(0)
 
     assert spool.pending_records() == []
+
+
+def test_validation_uploader_adds_authorization_header(tmp_path, monkeypatch):
+    settings = ValidationSettings(
+        validation_enabled=True,
+        validation_server_url="https://example.test",
+        validation_upload_token="test-token",
+    )
+    uploader = ValidationUploader(settings=settings, spool=ValidationSpool(root=tmp_path / "validation"))
+    audio_path = tmp_path / "sample.wav"
+    audio_path.write_bytes(b"RIFF")
+    record = {"audio": {"path": str(audio_path)}}
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def read(self):
+            return b'{"accepted": true}'
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        return FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    uploader._post_multipart("https://example.test/v1/validation/utterances", record)
+
+    assert captured["request"].headers["Authorization"] == "Bearer test-token"
+
+
+def test_validation_uploader_blocks_insecure_non_localhost_endpoint(tmp_path, monkeypatch):
+    settings = ValidationSettings(
+        validation_enabled=True,
+        validation_server_url="http://example.test",
+    )
+    uploader = ValidationUploader(settings=settings, spool=ValidationSpool(root=tmp_path / "validation"))
+    post_calls = []
+    monkeypatch.setattr(uploader, "_post_multipart", lambda url, record: post_calls.append((url, record)))
+
+    with pytest.warns(UserWarning):
+        uploader._upload_record({"utterance_id": "u1"})
+
+    assert post_calls == []

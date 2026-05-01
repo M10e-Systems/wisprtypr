@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import warnings
 import wave
 from dataclasses import dataclass
 from dataclasses import field
@@ -327,6 +328,12 @@ class ValidationUploader:
         server_url = self._settings.validation_server_url.strip()
         if not server_url:
             return
+        if not self._settings.has_secure_validation_endpoint():
+            warnings.warn(
+                "Validation upload disabled for non-HTTPS endpoint unless using localhost/127.0.0.1.",
+                stacklevel=2,
+            )
+            return
         try:
             response = self._post_multipart(server_url.rstrip("/") + "/v1/validation/utterances", record)
         except (OSError, urllib.error.URLError):
@@ -358,11 +365,18 @@ class ValidationUploader:
         request = urllib.request.Request(
             url,
             data=bytes(body),
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            headers=self._build_headers(boundary),
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _build_headers(self, boundary: str) -> dict[str, str]:
+        headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+        token = self._settings.validation_upload_token.strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
 
 
 class X11CorrectionObserver:

@@ -5,6 +5,7 @@ import uuid
 from dataclasses import asdict
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def default_settings_path() -> Path:
@@ -20,6 +21,7 @@ class ValidationSettings:
     validation_max_pending_mb: int = 256
     validation_client_id: str = ""
     validation_device_id: str = ""
+    validation_upload_token: str = ""
 
     @classmethod
     def load(cls, path: Path | None = None) -> ValidationSettings:
@@ -38,9 +40,19 @@ class ValidationSettings:
             validation_max_pending_mb=int(raw.get("validation_max_pending_mb", 256)),
             validation_client_id=str(raw.get("validation_client_id", "")),
             validation_device_id=str(raw.get("validation_device_id", "")),
+            validation_upload_token=str(raw.get("validation_upload_token", "")),
         )
         settings.ensure_ids()
         return settings
+
+    def has_secure_validation_endpoint(self) -> bool:
+        parsed = urlparse(self.validation_server_url.strip())
+        if parsed.scheme == "https":
+            return True
+        if parsed.scheme != "http":
+            return False
+        hostname = (parsed.hostname or "").lower()
+        return hostname in {"localhost", "127.0.0.1"}
 
     def ensure_ids(self) -> None:
         if not self.validation_client_id:
