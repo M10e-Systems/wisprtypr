@@ -25,7 +25,9 @@ class Application:
         self._tray.set_validation_actions(
             enabled=self._validation.enabled,
             on_enable=self._enable_validation,
-            on_disable=self._disable_validation,
+            on_prepare_disable=self._prepare_disable_validation,
+            on_disable_keep_uploading=self._disable_validation_keep_uploading,
+            on_disable_delete_pending=self._disable_validation_delete_pending,
             on_mark_last_bad=self._mark_last_utterance_wrong,
             on_upload_pending=self._upload_pending_validation,
             on_delete_pending=self._delete_pending_validation,
@@ -61,7 +63,15 @@ class Application:
     def _enable_validation(self) -> None:
         self._validation.set_enabled(True)
 
-    def _disable_validation(self) -> None:
+    def _prepare_disable_validation(self) -> str:
+        return self._validation.prepare_disable()
+
+    def _disable_validation_keep_uploading(self) -> None:
+        self._validation.set_enabled(False)
+        self._validation.upload_pending_now()
+
+    def _disable_validation_delete_pending(self) -> None:
+        self._validation.delete_pending_data()
         self._validation.set_enabled(False)
 
     def _mark_last_utterance_wrong(self) -> None:

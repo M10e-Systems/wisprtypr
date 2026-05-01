@@ -596,6 +596,11 @@ class ValidationManager:
         if enabled:
             self._uploader.kick()
 
+    def prepare_disable(self) -> str:
+        if self._spool.pending_records():
+            return "pending_exists"
+        return "no_pending"
+
     def begin_utterance(self) -> str:
         utterance_id = uuid.uuid4().hex
         with self._lock:

@@ -33,6 +33,9 @@ class TrayIcon:
         self._on_select_chunk_duration = None
         self._on_enable_validation = None
         self._on_disable_validation = None
+        self._on_prepare_disable_validation = None
+        self._on_disable_keep_uploading = None
+        self._on_disable_delete_pending = None
         self._on_mark_last_bad = None
         self._on_upload_validation = None
         self._on_delete_validation = None
@@ -80,14 +83,18 @@ class TrayIcon:
         *,
         enabled: bool,
         on_enable,
-        on_disable,
+        on_prepare_disable,
+        on_disable_keep_uploading,
+        on_disable_delete_pending,
         on_mark_last_bad,
         on_upload_pending,
         on_delete_pending,
     ) -> None:
         self._validation_enabled = enabled
         self._on_enable_validation = on_enable
-        self._on_disable_validation = on_disable
+        self._on_prepare_disable_validation = on_prepare_disable
+        self._on_disable_keep_uploading = on_disable_keep_uploading
+        self._on_disable_delete_pending = on_disable_delete_pending
         self._on_mark_last_bad = on_mark_last_bad
         self._on_upload_validation = on_upload_pending
         self._on_delete_validation = on_delete_pending
@@ -218,9 +225,28 @@ class TrayIcon:
             self._sync_validation_menu_state()
 
     def _disable_validation(self) -> None:
-        if self._on_disable_validation is not None:
+        if self._on_prepare_disable_validation is None:
+            return
+        outcome = self._on_prepare_disable_validation()
+        if outcome == "pending_exists":
+            response = self._confirm_validation_disable_with_pending()
+            if response == Gtk.ResponseType.CANCEL:
+                return
+            if response == Gtk.ResponseType.YES and self._on_disable_keep_uploading is not None:
+                self._validation_enabled = False
+                self._on_disable_keep_uploading()
+                self._sync_validation_menu_state()
+                return
+            if response == Gtk.ResponseType.NO and self._on_disable_delete_pending is not None:
+                self._validation_enabled = False
+                self._on_disable_delete_pending()
+                self._sync_validation_menu_state()
+                return
+            return
+
+        if self._on_disable_keep_uploading is not None:
             self._validation_enabled = False
-            self._on_disable_validation()
+            self._on_disable_keep_uploading()
             self._sync_validation_menu_state()
 
     def _mark_last_bad(self) -> None:
@@ -259,3 +285,20 @@ class TrayIcon:
         self._indicator.set_icon_full(self._indicator_icon_name, self._indicator_tooltip)
         self._indicator.set_menu(self._menu)
         return True
+
+    def _confirm_validation_disable_with_pending(self):
+        dialog = Gtk.MessageDialog(
+            transient_for=None,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text="Pending validation data exists.",
+        )
+        dialog.format_secondary_text("Choose what to do with pending validation data before turning validation off.")
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Disable + Keep Uploading Pending", Gtk.ResponseType.YES)
+        dialog.add_button("Disable + Delete Pending Now", Gtk.ResponseType.NO)
+        try:
+            return dialog.run()
+        finally:
+            dialog.destroy()
