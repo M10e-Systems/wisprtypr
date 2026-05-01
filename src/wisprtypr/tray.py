@@ -31,8 +31,14 @@ class TrayIcon:
         self._on_toggle = on_toggle
         self._on_quit = on_quit
         self._on_select_chunk_duration = None
+        self._on_enable_validation = None
+        self._on_disable_validation = None
+        self._on_mark_last_bad = None
+        self._on_upload_validation = None
+        self._on_delete_validation = None
         self._chunk_duration_seconds = 4
         self._chunk_items = {}
+        self._validation_enabled = False
         self._status_icon = None
         self._indicator = None
         self._indicator_icon_name = "audio-input-microphone"
@@ -68,6 +74,24 @@ class TrayIcon:
     def set_chunk_duration(self, seconds: int) -> None:
         self._chunk_duration_seconds = seconds
         GLib.idle_add(self._sync_chunk_menu_state, seconds)
+
+    def set_validation_actions(
+        self,
+        *,
+        enabled: bool,
+        on_enable,
+        on_disable,
+        on_mark_last_bad,
+        on_upload_pending,
+        on_delete_pending,
+    ) -> None:
+        self._validation_enabled = enabled
+        self._on_enable_validation = on_enable
+        self._on_disable_validation = on_disable
+        self._on_mark_last_bad = on_mark_last_bad
+        self._on_upload_validation = on_upload_pending
+        self._on_delete_validation = on_delete_pending
+        GLib.idle_add(self._sync_validation_menu_state)
 
     def run(self) -> None:
         Gtk.main()
@@ -115,6 +139,25 @@ class TrayIcon:
         chunk_header = Gtk.MenuItem(label="Chunk Length")
         chunk_header.set_sensitive(False)
         menu.append(chunk_header)
+        menu.append(Gtk.SeparatorMenuItem())
+        validation_header = Gtk.MenuItem(label="Validation Mode")
+        validation_header.set_sensitive(False)
+        menu.append(validation_header)
+        self._validation_off_item = Gtk.MenuItem(label="Off")
+        self._validation_off_item.connect("activate", lambda *_args: self._disable_validation())
+        menu.append(self._validation_off_item)
+        self._validation_on_item = Gtk.MenuItem(label="On: audio + correction capture")
+        self._validation_on_item.connect("activate", lambda *_args: self._enable_validation())
+        menu.append(self._validation_on_item)
+        self._mark_bad_item = Gtk.MenuItem(label="Mark Last Utterance Wrong")
+        self._mark_bad_item.connect("activate", lambda *_args: self._mark_last_bad())
+        menu.append(self._mark_bad_item)
+        self._upload_validation_item = Gtk.MenuItem(label="Upload Pending Now")
+        self._upload_validation_item.connect("activate", lambda *_args: self._upload_pending_validation())
+        menu.append(self._upload_validation_item)
+        self._delete_validation_item = Gtk.MenuItem(label="Delete Pending Validation Data")
+        self._delete_validation_item.connect("activate", lambda *_args: self._delete_pending_validation())
+        menu.append(self._delete_validation_item)
         quit_item = Gtk.MenuItem(label="Quit")
         quit_item.connect("activate", lambda *_args: self._on_quit())
         menu.append(Gtk.SeparatorMenuItem())
@@ -139,6 +182,17 @@ class TrayIcon:
         self._sync_chunk_menu_state(selected)
         return False
 
+    def _sync_validation_menu_state(self) -> bool:
+        if self._validation_enabled:
+            self._validation_on_item.set_sensitive(False)
+            self._validation_off_item.set_sensitive(True)
+            self._mark_bad_item.set_sensitive(True)
+        else:
+            self._validation_on_item.set_sensitive(True)
+            self._validation_off_item.set_sensitive(False)
+            self._mark_bad_item.set_sensitive(False)
+        return False
+
     def _sync_chunk_menu_state(self, selected: int) -> bool:
         self._chunk_duration_seconds = selected
         for seconds, item in self._chunk_items.items():
@@ -156,6 +210,47 @@ class TrayIcon:
 
     def _handle_popup_menu(self, icon, button, activate_time) -> None:
         self._menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, activate_time)
+
+    def _enable_validation(self) -> None:
+        if self._confirm_validation_enable() and self._on_enable_validation is not None:
+            self._validation_enabled = True
+            self._on_enable_validation()
+            self._sync_validation_menu_state()
+
+    def _disable_validation(self) -> None:
+        if self._on_disable_validation is not None:
+            self._validation_enabled = False
+            self._on_disable_validation()
+            self._sync_validation_menu_state()
+
+    def _mark_last_bad(self) -> None:
+        if self._on_mark_last_bad is not None:
+            self._on_mark_last_bad()
+
+    def _upload_pending_validation(self) -> None:
+        if self._on_upload_validation is not None:
+            self._on_upload_validation()
+
+    def _delete_pending_validation(self) -> None:
+        if self._on_delete_validation is not None:
+            self._on_delete_validation()
+
+    def _confirm_validation_enable(self) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=None,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="Enable validation mode?",
+        )
+        dialog.format_secondary_text(
+            "WisprTypr will save dictated audio clips and likely correction edits, then upload them to the validation server."
+        )
+        try:
+            response = dialog.run()
+        finally:
+            dialog.destroy()
+        return response == Gtk.ResponseType.OK
 
     def _refresh_indicator_registration(self) -> bool:
         if self._indicator is None:

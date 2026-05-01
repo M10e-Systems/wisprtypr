@@ -11,6 +11,7 @@ python = "^3.12"
 numpy = "^2.2.4"
 sounddevice = "^0.5.1"
 faster-whisper = "^1.1.1"
+python-xlib = "^0.33"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
@@ -22,6 +23,8 @@ wisprtypr-install-systemd-hooks = "wisprtypr.systemd_hooks:main"
 wisprtypr-install-autostart = "wisprtypr.autostart:main"
 wisprtypr-audio-eval = "wisprtypr.audio_eval:audio_eval_main"
 wisprtypr-audio-fix-loop = "wisprtypr.audio_eval:audio_fix_loop_main"
+wisprtypr-validation-server = "wisprtypr.validation_server:validation_server_main"
+wisprtypr-validation-analyze = "wisprtypr.validation_analyze:validation_analyze_main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

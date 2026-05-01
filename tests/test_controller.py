@@ -8,6 +8,7 @@ from wisprtypr.state import AppState
 class FakeTranscriptUpdate:
     text: str
     is_final: bool
+    audio: object | None = None
 
 
 class FakeTray:

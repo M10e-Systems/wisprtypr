@@ -9,14 +9,16 @@ from wisprtypr.stt import TranscriptUpdate
 class DictationController:
     chunk_duration_options = (1, 2, 4, 10)
 
-    def __init__(self, tray, transcriber, injector) -> None:
+    def __init__(self, tray, transcriber, injector, validation_manager=None) -> None:
         self._tray = tray
         self._transcriber = transcriber
         self._injector = injector
+        self._validation_manager = validation_manager
         self._state = AppState.OFF
         self._chunk_duration_seconds = 4
         self._committed_words: list[str] = []
         self._last_hypothesis_words: list[str] = []
+        self._active_validation_utterance_id: str | None = None
         self._worker = TranscriptionWorker(
             transcribe=self._transcriber.transcribe_chunk,
             on_text=self._handle_transcribed_text,
@@ -86,8 +88,37 @@ class DictationController:
 
         next_text = self._next_commit_text(normalized, is_final=update.is_final)
         if next_text:
-            self._injector.inject_text(next_text)
+            utterance_id = None
+            if self._validation_manager is not None and self._validation_manager.enabled:
+                if self._active_validation_utterance_id is None:
+                    self._active_validation_utterance_id = self._validation_manager.begin_utterance()
+                utterance_id = self._active_validation_utterance_id
+            injection = self._injector.inject_text(next_text)
+            if self._validation_manager is not None and utterance_id is not None:
+                self._validation_manager.note_injection(utterance_id, full_text=normalized)
         if update.is_final:
+            if (
+                self._validation_manager is not None
+                and self._active_validation_utterance_id is not None
+                and update.audio is not None
+                and normalized
+            ):
+                self._validation_manager.complete_utterance(
+                    self._active_validation_utterance_id,
+                    audio=update.audio,
+                    raw_transcript=update.text,
+                    normalized_transcript=normalized,
+                    injected_text=normalized,
+                    chunk_duration_seconds=self._chunk_duration_seconds,
+                    transcriber_config={
+                        "model_name": self._transcriber.config.model_name,
+                        "compute_type": self._transcriber.config.compute_type,
+                        "language": self._transcriber.config.language,
+                        "context_seconds": self._transcriber.config.context_seconds,
+                    },
+                    detector_config=self._detector.describe_config(),
+                    injection_method=injection.method if next_text else "none",
+                )
             self._reset_live_transcript()
 
     def _handle_error(self, exc: Exception) -> None:
@@ -119,6 +150,7 @@ class DictationController:
     def _reset_live_transcript(self) -> None:
         self._committed_words = []
         self._last_hypothesis_words = []
+        self._active_validation_utterance_id = None
 
 
 def _common_prefix_words(left: list[str], right: list[str]) -> list[str]:

@@ -58,6 +58,8 @@ WisprTypr is a local-first speech-to-text tray app for Ubuntu on X11 with Xfce4.
 - The application is implemented as a Python project managed with Poetry.
 - The repository must maintain a `Makefile`.
 - The `Makefile` must include a `test` target that resolves dependencies and runs the full automated test suite.
+- `make test` is the canonical command for running the automated test suite in this repository.
+- When validating changes, contributors and agents should run `make test` first rather than invoking `pytest` or other lower-level test commands directly, unless `make test` itself is broken or the task explicitly requires a narrower check.
 - Automated tests should cover the toggle lifecycle, transcript normalization, text injection behavior, and process metadata relevant to desktop integration.
 
 ## Accepted v1 Implementation Choices

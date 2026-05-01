@@ -127,6 +127,15 @@ class UtteranceDetector:
     def set_max_chunk_seconds(self, seconds: int) -> None:
         self._max_chunk_samples = int(seconds * self._sample_rate)
 
+    def describe_config(self) -> dict[str, float | int]:
+        return {
+            "silence_seconds": self._silence_seconds,
+            "min_speech_seconds": self._min_speech_samples / self._sample_rate,
+            "energy_threshold": self._energy_threshold,
+            "sample_rate": self._sample_rate,
+            "max_chunk_seconds": self._max_chunk_samples / self._sample_rate,
+        }
+
     @property
     def _buffered_samples(self) -> int:
         return sum(len(chunk) for chunk in self._chunks)

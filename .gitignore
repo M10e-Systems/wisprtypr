@@ -1,0 +1,5 @@
+.codanna/
+.fastembed_cache
+.local/
+__pycache__/
+*.pyc

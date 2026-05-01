@@ -20,6 +20,7 @@ class WhisperConfig:
 class TranscriptUpdate:
     text: str
     is_final: bool
+    audio: np.ndarray | None = None
 
 
 class WhisperTranscriber:
@@ -47,8 +48,9 @@ class WhisperTranscriber:
         max_samples = self.config.context_seconds * 16_000
         if self._active_audio.size > max_samples:
             self._active_audio = self._active_audio[-max_samples:]
+        captured_audio = np.copy(self._active_audio)
         text = self.transcribe(self._active_audio)
-        result = TranscriptUpdate(text=text, is_final=chunk.is_final)
+        result = TranscriptUpdate(text=text, is_final=chunk.is_final, audio=captured_audio)
         if chunk.is_final:
             self._active_audio = np.array([], dtype="float32")
         return result

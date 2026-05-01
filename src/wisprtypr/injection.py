@@ -15,10 +15,15 @@ class ClipboardSnapshot:
     primary: str
 
 
+@dataclass(frozen=True)
+class InjectionResult:
+    method: str
+
+
 class TextInjector:
-    def inject_text(self, text: str) -> None:
+    def inject_text(self, text: str) -> InjectionResult:
         if not text:
-            return
+            return InjectionResult(method="none")
         snapshot = self._snapshot_clipboards()
         try:
             self._set_clipboard(text)
@@ -26,8 +31,10 @@ class TextInjector:
         except Exception:
             self._restore_clipboards(snapshot)
             self._type_text(text)
+            return InjectionResult(method="type")
         else:
             self._restore_clipboards(snapshot)
+            return InjectionResult(method="paste")
 
     def _snapshot_clipboards(self) -> ClipboardSnapshot:
         return ClipboardSnapshot(
