@@ -72,6 +72,7 @@ class DictationController:
         self._capture.stop()
         self._detector.discard()
         self._worker.stop()
+        self._finalize_active_validation_observation()
         self._reset_live_transcript()
 
     def shutdown(self) -> None:
@@ -86,12 +87,14 @@ class DictationController:
                 self._reset_live_transcript()
             return
 
+        if self._validation_manager is not None and self._validation_manager.enabled:
+            if self._active_validation_utterance_id is None:
+                self._active_validation_utterance_id = self._validation_manager.begin_utterance()
+
         next_text = self._next_commit_text(normalized, is_final=update.is_final)
         if next_text:
             utterance_id = None
             if self._validation_manager is not None and self._validation_manager.enabled:
-                if self._active_validation_utterance_id is None:
-                    self._active_validation_utterance_id = self._validation_manager.begin_utterance()
                 utterance_id = self._active_validation_utterance_id
             injection = self._injector.inject_text(next_text)
             if self._validation_manager is not None and utterance_id is not None:
@@ -110,22 +113,27 @@ class DictationController:
                     normalized_transcript=normalized,
                     injected_text=normalized,
                     chunk_duration_seconds=self._chunk_duration_seconds,
-                    transcriber_config={
-                        "model_name": self._transcriber.config.model_name,
-                        "compute_type": self._transcriber.config.compute_type,
-                        "language": self._transcriber.config.language,
-                        "context_seconds": self._transcriber.config.context_seconds,
-                    },
+                    transcriber_config=_describe_transcriber_config(self._transcriber),
                     detector_config=self._detector.describe_config(),
-                    injection_method=injection.method if next_text else "none",
+                    injection_method=_describe_injection_method(injection) if next_text else "none",
                 )
+            self._finalize_active_validation_observation()
             self._reset_live_transcript()
 
     def _handle_error(self, exc: Exception) -> None:
         self._capture.stop()
         self._worker.stop()
+        self._finalize_active_validation_observation()
         self._reset_live_transcript()
         self._set_state(AppState.ERROR, str(exc))
+
+    def _finalize_active_validation_observation(self) -> None:
+        if self._validation_manager is None:
+            return
+        if self._active_validation_utterance_id is None:
+            return
+        self._validation_manager.finalize_observation(self._active_validation_utterance_id)
+        self._active_validation_utterance_id = None
 
     def _set_state(self, state: AppState, error: str | None = None) -> None:
         self._state = state
@@ -169,3 +177,19 @@ def _format_commit_text(words: list[str], has_existing: bool) -> str:
     if has_existing:
         return f" {text}"
     return text
+
+
+def _describe_transcriber_config(transcriber) -> dict[str, object]:
+    config = getattr(transcriber, "config", None)
+    if config is None:
+        return {}
+    return {
+        "model_name": getattr(config, "model_name", None),
+        "compute_type": getattr(config, "compute_type", None),
+        "language": getattr(config, "language", None),
+        "context_seconds": getattr(config, "context_seconds", None),
+    }
+
+
+def _describe_injection_method(injection) -> str:
+    return getattr(injection, "method", "none")
